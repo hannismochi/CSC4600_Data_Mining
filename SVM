@@ -1,0 +1,228 @@
+# Import necessary libraries
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder, LabelEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import train_test_split, KFold, cross_val_score, GridSearchCV, RandomizedSearchCV
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.svm import SVR
+import time
+import matplotlib.pyplot as plt
+
+# Step 1: Load dataset
+file_path = 'crop_yield_north_only.csv'
+data = pd.read_csv(file_path)
+
+# Define hyperparameter grids for Grid Search and Random Search
+param_grid = {
+    'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
+    'C': [0.1, 1, 10, 100],
+    'gamma': ['scale', 'auto'],
+    'epsilon': [0.1, 0.2, 0.5, 1.0]
+}
+
+random_param_grid = {
+    'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
+    'C': [0.1, 1, 10, 100],
+    'gamma': ['scale', 'auto'],
+    'epsilon': [0.1, 0.2, 0.5, 1.0]
+}
+
+# Function: Preprocessing Data
+def preprocess_data(data, scaler=None, encoder=None, categorical_columns=None, numerical_columns=None):
+    """Preprocess data by encoding categorical columns and scaling numerical columns."""
+    if encoder == 'OneHotEncoder':
+        column_transformer = ColumnTransformer(
+            transformers=[('cat', OneHotEncoder(sparse_output=False, drop='first'), categorical_columns)],
+            remainder='passthrough'
+        )
+        X = column_transformer.fit_transform(data)
+    elif encoder == 'LabelEncoder':
+        for col in categorical_columns:
+            data[col] = LabelEncoder().fit_transform(data[col])
+        X = data
+    else:
+        X = data
+
+    if scaler:
+        X = scaler.fit_transform(X)
+    return pd.DataFrame(X)
+
+# Function: Feature Selection using Correlation
+def select_features_correlation(X, y, threshold=0.1):
+    """Select features based on correlation with the target variable."""
+    correlation = X.corrwith(y)
+    selected_features = X.loc[:, correlation.abs() > threshold]
+    print("Selected Features based on Correlation:")
+    print(selected_features.columns.tolist())
+    return selected_features
+
+# Function: Train and Evaluate Model
+def train_and_evaluate(X_train, X_test, y_train, y_test, model):
+    """Train the model and evaluate using test data."""
+    start_time = time.time()
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    elapsed_time = time.time() - start_time
+
+    metrics = {
+        'MAE': mean_absolute_error(y_test, y_pred),
+        'MSE': mean_squared_error(y_test, y_pred),
+        'R2': r2_score(y_test, y_pred),
+        'Training Time': elapsed_time
+    }
+    return metrics
+
+# Function: Perform K-Fold Cross-Validation
+def perform_kfold(X, y, model, k=5):
+    """Perform K-Fold cross-validation and return mean metrics."""
+    kf = KFold(n_splits=k, shuffle=True, random_state=42)
+    r2_scores = cross_val_score(model, X, y, cv=kf, scoring='r2')
+    mae_scores = cross_val_score(model, X, y, cv=kf, scoring='neg_mean_absolute_error')
+    mse_scores = cross_val_score(model, X, y, cv=kf, scoring='neg_mean_squared_error')
+
+    metrics = {
+        'CV R2 Mean': np.mean(r2_scores),
+        'CV MAE Mean': -np.mean(mae_scores),
+        'CV MSE Mean': -np.mean(mse_scores)
+    }
+    return metrics
+
+# Function: Hyperparameter Tuning with Grid Search
+def hyperparameter_tuning_grid(X_train, y_train):
+    """Perform hyperparameter tuning using Grid Search."""
+    grid_search = GridSearchCV(SVR(), param_grid, cv=5, scoring='r2', n_jobs=-1)
+    grid_search.fit(X_train, y_train)
+    return grid_search.best_params_, grid_search.best_score_
+
+# Function: Hyperparameter Tuning with Random Search
+def hyperparameter_tuning_random(X_train, y_train):
+    """Perform hyperparameter tuning using Random Search."""
+    random_search = RandomizedSearchCV(SVR(), random_param_grid, n_iter=10, cv=5, scoring='r2', n_jobs=-1, random_state=42)
+    random_search.fit(X_train, y_train)
+    return random_search.best_params_, random_search.best_score_
+
+# Step 2: Exploratory Data Analysis (EDA)
+print("Dataset Information:")
+print(data.info())
+
+print("\nMissing Values in Each Column:")
+print(data.isnull().sum())
+
+print("\nSample Data:")
+print(data.head())
+
+# Step 3: Data Preprocessing
+num_imputer = SimpleImputer(strategy='mean')
+cat_imputer = SimpleImputer(strategy='most_frequent')
+
+numerical_columns = data.select_dtypes(include=['float64', 'int64']).columns
+categorical_columns = data.select_dtypes(include=['object']).columns
+
+# Impute missing values
+data[numerical_columns] = num_imputer.fit_transform(data[numerical_columns])
+data[categorical_columns] = cat_imputer.fit_transform(data[categorical_columns])
+
+# Step 4: Experiment with scaling and encoding
+scaling_methods = {
+    'StandardScaler': StandardScaler(),
+    'MinMaxScaler': MinMaxScaler(),
+    'None': None
+}
+
+encoder_methods = {
+    'OneHotEncoder': 'OneHotEncoder',
+    'LabelEncoder': 'LabelEncoder',
+    'None': None
+}
+
+results_combinations = []
+kfold_results = []
+
+for scaling_name, scaler in scaling_methods.items():
+    for encoder_name, encoder in encoder_methods.items():
+        try:
+            # Prepare data
+            data_copy = data.copy()
+            X = data_copy.drop('Yield_tons_per_hectare', axis=1)
+            y = data_copy['Yield_tons_per_hectare']
+
+            X = preprocess_data(
+                data=X,
+                scaler=scaler,
+                encoder=encoder,
+                categorical_columns=categorical_columns,
+                numerical_columns=numerical_columns
+            )
+
+            # Check for NaN values
+            if X.isnull().values.any():
+                print("NaN values found in the dataset. Handling them...")
+                X.fillna(X.mean(), inplace=True)  # Example: Fill NaN with mean
+
+            # Remove features with zero variance
+            X = X.loc[:, X.var() > 0]  # Keep only features with variance greater than 0
+
+            # Correlation Analysis
+            X_final = select_features_correlation(X, y)
+
+            # Data Splitting
+            X_train, X_test, y_train, y_test = train_test_split(X_final, y, test_size=0.2, random_state=42)
+
+            # Hyperparameter Tuning with Grid Search
+            best_params_grid, best_score_grid = hyperparameter_tuning_grid(X_train, y_train)
+            print(f"Best Params from Grid Search: {best_params_grid}, Best Score: {best_score_grid}")
+
+            # Hyperparameter Tuning with Random Search
+            best_params_random, best_score_random = hyperparameter_tuning_random(X_train, y_train)
+            print(f"Best Params from Random Search: {best_params_random}, Best Score: {best_score_random}")
+
+            # Model Training and Evaluation with best parameters from Grid Search
+            model_grid = SVR(**best_params_grid)
+            metrics_grid = train_and_evaluate(X_train, X_test, y_train, y_test, model_grid)
+            metrics_grid.update({'Scaling Method': scaling_name, 'Encoding Method': encoder_name, 'Model': 'SVM (Grid Search)'} )
+            results_combinations.append(metrics_grid)
+
+            # K-Fold Cross-Validation for Grid Search
+            kfold_metrics_grid = perform_kfold(X_final, y, model_grid)
+            kfold_metrics_grid.update({'Scaling Method': scaling_name, 'Encoding Method': encoder_name, 'Model': 'SVM (Grid Search)'} )
+            kfold_results.append(kfold_metrics_grid)
+
+            # Model Training and Evaluation with best parameters from Random Search
+            model_random = SVR(**best_params_random)
+            metrics_random = train_and_evaluate(X_train, X_test, y_train, y_test, model_random)
+            metrics_random.update({'Scaling Method': scaling_name, 'Encoding Method': encoder_name, 'Model': 'SVM (Random Search)'} )
+            results_combinations.append(metrics_random)
+
+            # K-Fold Cross-Validation for Random Search
+            kfold_metrics_random = perform_kfold(X_final, y, model_random)
+            kfold_metrics_random.update({'Scaling Method': scaling_name, 'Encoding Method': encoder_name, 'Model': 'SVM (Random Search)'} )
+            kfold_results.append(kfold_metrics_random)
+
+        except Exception as e:
+            print(f"Error with Scaling: {scaling_name}, Encoding: {encoder_name} - {str(e)}")
+            continue
+
+# Step 5: Results Visualization
+results_df = pd.DataFrame(results_combinations)
+kfold_df = pd.DataFrame(kfold_results)
+
+# Display the best results from Grid Search and Random Search
+best_grid_result = results_df[results_df['Model'] == 'SVM (Grid Search)'].sort_values('R2', ascending=False).head(1)
+best_random_result = results_df[results_df['Model'] == 'SVM (Random Search)'].sort_values('R2', ascending=False).head(1)
+
+print("\nBest Result from Grid Search:")
+print(best_grid_result.to_string(index=False))
+
+print("\nBest Result from Random Search:")
+print(best_random_result.to_string(index=False))
+
+# Display Train-Test Split Results
+print("\nTrain-Test Split Results:")
+print(results_df.sort_values('R2', ascending=False).to_string(index=False))
+
+# Display K-Fold Cross-Validation Results
+print("\nK-Fold Cross-Validation Results:")
+kfold_df_sorted = kfold_df.sort_values('CV R2 Mean', ascending=False)
+print(kfold_df_sorted.to_string(index=False))
