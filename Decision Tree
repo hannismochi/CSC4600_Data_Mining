@@ -8,7 +8,6 @@ from sklearn.model_selection import train_test_split, KFold, cross_val_score, Gr
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.feature_selection import RFE
 from sklearn.tree import plot_tree
 import time
 import matplotlib.pyplot as plt
@@ -62,36 +61,6 @@ def select_features_correlation(X, y, threshold=0.1):
     correlation = X.corrwith(y)
     selected_features = X.loc[:, correlation.abs() > threshold]
     print("Selected Features based on Correlation:")
-    print(selected_features.columns.tolist())
-    return selected_features
-
-# Function: Feature Selection using RFE
-def select_features_rfe(X, y, model, n_features_to_select=5):
-    """Select features using Recursive Feature Elimination (RFE)."""
-    rfe = RFE(estimator=model, n_features_to_select=n_features_to_select)
-    rfe.fit(X, y)
-    selected_features = X.loc[:, rfe.support_]
-    print("Selected Features after RFE:")
-    print(selected_features.columns.tolist())
-    return selected_features
-
-# Function: Feature Importance from Tree Models
-def select_features_importance(X, y):
-    """Select features based on importance from a Random Forest model."""
-    model = DecisionTreeRegressor(random_state=42)
-    model.fit(X, y)
-    importances = model.feature_importances_
-    indices = np.argsort(importances)[::-1]
-
-    # Create a DataFrame for feature importance
-    feature_importance = pd.DataFrame({'Feature': X.columns, 'Importance': importances})
-    print("Feature Importance:")
-    print(feature_importance.sort_values(by='Importance', ascending=False))
-
-    # Select features with importance greater than a threshold
-    threshold = 0.05  # Adjust threshold as needed
-    selected_features = X.loc[:, importances > threshold]
-    print("Selected Features based on Importance:")
     print(selected_features.columns.tolist())
     return selected_features
 
@@ -202,14 +171,7 @@ for scaling_name, scaler in scaling_methods.items():
             X = X.loc[:, X.var() > 0]  # Keep only features with variance greater than 0
 
             # Correlation Analysis
-            X_selected_corr = select_features_correlation(X, y)
-
-            # Recursive Feature Elimination (RFE)
-            model_rfe = DecisionTreeRegressor()
-            X_selected_rfe = select_features_rfe(X_selected_corr, y, model_rfe, n_features_to_select=3)
-
-            #  Feature Importance from Tree Models
-            X_final = select_features_importance(X_selected_rfe, y)
+            X_final= select_features_correlation(X, y)
 
             # Data Splitting
             X_train, X_test, y_train, y_test = train_test_split(X_final, y, test_size=0.2, random_state=42)
@@ -252,8 +214,6 @@ for scaling_name, scaler in scaling_methods.items():
 results_df = pd.DataFrame(results_combinations)
 kfold_df = pd.DataFrame(kfold_results)
 
-# Assuming you have already trained your model
-# For example, after training with Grid Search:
 model_grid = DecisionTreeRegressor(**best_params_grid, random_state=42)
 model_grid.fit(X_train, y_train)
 
@@ -275,13 +235,3 @@ print(results_df.sort_values('R2', ascending=False).to_string(index=False))
 print("\nK-Fold Cross-Validation Results:")
 kfold_df_sorted = kfold_df.sort_values('CV R2 Mean', ascending=False)
 print(kfold_df_sorted.to_string(index=False))
-
-# Plotting the decision tree
-plt.figure(figsize=(2, 5))  # Set the figure size
-plot_tree(model_grid,
-           feature_names=X_train.columns,  # Use the feature names from your training data
-           filled=True,  # Color the nodes based on the target value
-           rounded=True,  # Round the corners of the nodes
-           fontsize=12)  # Font size for the text in the nodes
-plt.title("Decision Tree Regression Model")
-plt.show()
