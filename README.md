@@ -1,4 +1,4 @@
-🌾 ## Agriculture Crop Yield Prediction Using Machine Learning
+🌾 Agriculture Crop Yield Prediction Using Machine Learning
 
 This project focuses on predicting crop yields to improve agricultural productivity and support sustainable farming through data-driven insights. Agricultural output depends on complex factors such as climatic conditions, soil type, and crop characteristics, making accurate prediction a significant challenge.
 
